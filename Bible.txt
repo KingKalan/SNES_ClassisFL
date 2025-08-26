@@ -1,0 +1,177 @@
+# 📖 Frontloader Bible
+
+---
+
+## Entrypoint: `frontloader_modular.c`
+
+* **Purpose:** Main entry point of the program.
+* **Responsibilities:**
+
+  * Initializes SDL2 video/events.
+  * Creates main application window & renderer.
+  * Plays **built-in splash video** (debug check — confirms renderer works).
+  * While splash runs → Theme Loader determines active theme & folder paths.
+  * Loads **global config** (points to ROMs folder, Themes folder, and selected Theme).
+  * Passes selected theme directory to Theme Loader.
+  * Initializes required **modules** (layer system, HUD, sprite handling, etc.).
+  * Enters main loop:
+
+    * Processes SDL events (quit, inputs).
+    * Renders background and layers in strict hardware order.
+    * Calls Lua logic for tile layout/animations.
+    * Updates display (`SDL_RenderPresent`).
+  * Handles fatal errors:
+
+    * If splash fails → fatal program error.
+    * If theme fails to load → renderer shows log of why (instead of black screen).
+    * If layer asset missing → fallback solid-color tile or transparent layer (keeps program rolling).
+
+---
+
+## Config System
+
+* **Global Config** (read by Frontloader):
+
+  * `roms_path = /path/to/roms`
+  * `themes_path = /path/to/themes`
+  * `selected_theme = default`
+
+* **Theme Config** (inside selected theme folder):
+
+  * Theme-specific settings.
+  * FPS options for layers, tile scaling, scroll speed.
+  * Path references for tilesets and Lua script.
+
+---
+
+## Theme Loader
+
+* Reads **global config** → locates themes folder → loads selected theme.
+* Checks theme directory contains:
+
+  * `assets/` folder with tilesets (bg1, bg2, fg1, fg2, spr, hud1, hud2).
+  * `config.ini` with valid values.
+  * `theme.lua` with logic for tile arrangement.
+* If theme fails to validate:
+
+  * Renderer shows on-screen error log.
+  * Fallback to default theme.
+
+---
+
+## Layers (Tile System)
+
+* **Tile Size:** 16x16 (SNES authentic).
+* **Renderer Window:** 800×600 (SNES-like). Internal grid is 800×608 (50×38 tiles) → top 8px cut.
+* **Tile Sheets:** Must be multiples of 16.
+
+  * Min size: 16×16.
+  * Max sizes:
+
+    * BG/FG: 160×320 (200 tiles).
+    * HUD: 16×160 to 64×160.
+    * Sprites: 320×320 fixed.
+* **Layer Order:** Strict (hardware-like). Always reserved:
+
+  * BG1 (required).
+  * BG2 (optional → transparent if missing).
+  * FG1 (optional).
+  * Sprites.
+  * FG2 (optional).
+  * HUD1 (required — required menus).
+  * HUD2 (optional — user HUD).
+* **Fallbacks:**
+
+  * Missing image = solid color tile.
+  * Missing optional layer = transparent.
+  * Missing required (BG1 or HUD1) = fatal theme error.
+
+---
+
+## HUD
+
+* Split into two tile sets:
+
+  * **HUD1**: Required menus (ROM select, Theme select, Config).
+  * **HUD2**: User-defined graphics for overlays/extra UI.
+* **Rules:**
+
+  * HUD updates on change, not frame-by-frame redraw.
+  * Animations allowed but capped at **2 FPS**.
+  * Dialog boxes constructed with 9-tile system (4 corners, 4 edges, 1 center).
+
+---
+
+## Animations
+
+* **BG/FG layers:** 1, 2, or 4 FPS.
+* **Sprites:** 4, 8, or 12 FPS.
+* **HUD:** 2 FPS max.
+
+---
+
+## Lua Integration
+
+* Each theme includes `theme.lua`.
+
+* **Responsibilities of Lua:**
+
+  * Provide **tile arrangement** per layer.
+  * Define **animations** (frame sequences, speeds).
+  * Bind required menu functions to HUD1 tiles. Example:
+
+    * “File” block = opens File Menu dialog.
+    * “Theme” block = opens Theme Menu.
+  * Define interactive logic (jumping under “?” block tile triggers file menu).
+
+* **Frontloader Contracts:**
+
+  * Lua can only:
+
+    * Choose tiles from loaded tilesets.
+    * Arrange them into renderer grid.
+    * Specify animations.
+    * Attach HUD1 tiles to required menu actions.
+  * Frontloader handles execution of actions (e.g., switching themes, opening ROM list).
+
+---
+
+## Required Lua API Contract
+
+Each `theme.lua` must implement these functions (or Theme Loader throws fatal theme error):
+
+```lua
+-- Called once when theme is loaded
+function theme_init()
+end
+
+-- Called each frame, must return a table of layer tilemaps
+function theme_update(dt)
+    return {
+        bg1 = {...},
+        bg2 = {...},
+        fg1 = {...},
+        fg2 = {...},
+        spr = {...},
+        hud1 = {...},
+        hud2 = {...},
+    }
+end
+
+-- Must bind HUD1 tiles to required menu actions
+function theme_bind_menus()
+    return {
+        file_menu_tile = {x=4, y=10},
+        theme_menu_tile = {x=8, y=10},
+        config_menu_tile = {x=12, y=10}
+    }
+end
+```
+
+* **Validation Rules:**
+
+  * Missing `theme_init`, `theme_update`, or `theme_bind_menus` → Fatal theme error.
+  * Missing HUD1 tiles for required menus → Fatal theme error.
+  * Invalid return data (not tilemap tables) → Fatal theme error.
+
+---
