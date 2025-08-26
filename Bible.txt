@@ -1,4 +1,4 @@
-# 📖 Frontloader Bible
+# 📖 SNES Classic Frontloader Bible
 
 ---
 
@@ -7,171 +7,154 @@
 * **Purpose:** Main entry point of the program.
 * **Responsibilities:**
 
-  * Initializes SDL2 video/events.
-  * Creates main application window & renderer.
-  * Plays **built-in splash video** (debug check — confirms renderer works).
-  * While splash runs → Theme Loader determines active theme & folder paths.
-  * Loads **global config** (points to ROMs folder, Themes folder, and selected Theme).
-  * Passes selected theme directory to Theme Loader.
-  * Initializes required **modules** (layer system, HUD, sprite handling, etc.).
-  * Enters main loop:
+  * Initializes SDL2 video and events.
+  * Plays a built-in **splash video** (default shipped, user-changeable).
 
-    * Processes SDL events (quit, inputs).
-    * Renders background and layers in strict hardware order.
-    * Calls Lua logic for tile layout/animations.
-    * Updates display (`SDL_RenderPresent`).
-  * Handles fatal errors:
+    * Splash serves as a debug indicator that SDL + Renderer are working.
+    * While splash runs → theme loader checks configs and validates theme.
+  * Creates the main application window (`SDL_Window`).
+  * Creates the main renderer (`SDL_Renderer`).
+  * Loads the selected theme via **Theme Loader**.
+  * Initializes all layers (bg1, bg2, fg1, fg2, sprites, HUD).
+  * Enters the **main event loop**:
 
-    * If splash fails → fatal program error.
-    * If theme fails to load → renderer shows log of why (instead of black screen).
-    * If layer asset missing → fallback solid-color tile or transparent layer (keeps program rolling).
+    * Handles SDL events (quit, keyboard, controller).
+    * Renders layers in SNES order.
+    * Updates display with `SDL_RenderPresent`.
+  * On exit:
 
----
-
-## Config System
-
-* **Global Config** (read by Frontloader):
-
-  * `roms_path = /path/to/roms`
-  * `themes_path = /path/to/themes`
-  * `selected_theme = default`
-
-* **Theme Config** (inside selected theme folder):
-
-  * Theme-specific settings.
-  * FPS options for layers, tile scaling, scroll speed.
-  * Path references for tilesets and Lua script.
+    * Cleans up SDL resources.
+    * Frees theme + layers.
 
 ---
 
-## Theme Loader
+## Theme System
 
-* Reads **global config** → locates themes folder → loads selected theme.
-* Checks theme directory contains:
+* Themes live in `/themes/<name>/`.
+* **Config.ini** defines:
 
-  * `assets/` folder with tilesets (bg1, bg2, fg1, fg2, spr, hud1, hud2).
-  * `config.ini` with valid values.
-  * `theme.lua` with logic for tile arrangement.
-* If theme fails to validate:
+  * Tileset definitions per layer.
+  * Which Lua script to use.
+  * Theme metadata (name, author, etc.).
+* **Assets:** PNG-based tilesets.
 
-  * Renderer shows on-screen error log.
-  * Fallback to default theme.
-
----
-
-## Layers (Tile System)
-
-* **Tile Size:** 16x16 (SNES authentic).
-* **Renderer Window:** 800×600 (SNES-like). Internal grid is 800×608 (50×38 tiles) → top 8px cut.
-* **Tile Sheets:** Must be multiples of 16.
-
-  * Min size: 16×16.
-  * Max sizes:
-
-    * BG/FG: 160×320 (200 tiles).
-    * HUD: 16×160 to 64×160.
-    * Sprites: 320×320 fixed.
-* **Layer Order:** Strict (hardware-like). Always reserved:
-
-  * BG1 (required).
-  * BG2 (optional → transparent if missing).
-  * FG1 (optional).
-  * Sprites.
-  * FG2 (optional).
-  * HUD1 (required — required menus).
-  * HUD2 (optional — user HUD).
+  * Layers: bg1, bg2, fg1, fg2, spr, hud1 (req), hud2 (opt).
+  * Transparent PNG supported.
 * **Fallbacks:**
 
-  * Missing image = solid color tile.
-  * Missing optional layer = transparent.
-  * Missing required (BG1 or HUD1) = fatal theme error.
+  * If a required layer asset is missing, theme loader → **fatal error**.
+  * If optional asset missing, transparent placeholder texture is generated.
+  * If theme completely fails → fallback theme loaded.
 
 ---
 
-## HUD
+## Layers
 
-* Split into two tile sets:
+* SNES tile-based design.
+* Render target: **800x600** window.
 
-  * **HUD1**: Required menus (ROM select, Theme select, Config).
-  * **HUD2**: User-defined graphics for overlays/extra UI.
-* **Rules:**
+  * Internal grid: **800x608** (50×38 tiles, 16px each).
+  * Extra 8px at top is cut off (keeps SNES multiple-of-16 authenticity).
 
-  * HUD updates on change, not frame-by-frame redraw.
-  * Animations allowed but capped at **2 FPS**.
-  * Dialog boxes constructed with 9-tile system (4 corners, 4 edges, 1 center).
+### Tile Rules
 
----
+* Tiles must be **multiples of 16**.
+* **BG/FG layers:** 16×16 minimum → 160×320 maximum (200 tiles).
+* **HUD tiles:** 16×160 → 64×160, multiples of 16.
+* **Sprites:** 320×320.
 
-## Animations
+### FPS Rules
 
-* **BG/FG layers:** 1, 2, or 4 FPS.
+* **HUD animations:** max 2 FPS.
 * **Sprites:** 4, 8, or 12 FPS.
-* **HUD:** 2 FPS max.
+* **BG/FG layers:** 1, 2, or 4 FPS.
+
+### Rendering Pipeline
+
+1. Lua provides **tilemap arrangement** (ex: `C4 → G9`).
+2. Lua defines animation frames per tile.
+
+   * Example: `F5,G5` = frame1, `F6,G6` = frame2 @ 4FPS.
+3. Frontloader composites layers → renderer.
+
+---
+
+## Error Handling
+
+* If splash shows → renderer confirmed working.
+* If **theme fails to load fully** → renderer displays an error log (why it failed).
+* If only a single layer fails (ex: missing FG2):
+
+  * Replace with transparent placeholder.
+  * Continue execution without crash.
 
 ---
 
 ## Lua Integration
 
-* Each theme includes `theme.lua`.
+* Lua drives **tile arrangement + animations**.
+* Lua can:
 
-* **Responsibilities of Lua:**
+  * Place tiles onto the grid.
+  * Define animations (tile sequences + FPS).
+  * Define interactive menus (grid-based, tile-based, etc.).
+* Lua **cannot**:
 
-  * Provide **tile arrangement** per layer.
-  * Define **animations** (frame sequences, speeds).
-  * Bind required menu functions to HUD1 tiles. Example:
-
-    * “File” block = opens File Menu dialog.
-    * “Theme” block = opens Theme Menu.
-  * Define interactive logic (jumping under “?” block tile triggers file menu).
-
-* **Frontloader Contracts:**
-
-  * Lua can only:
-
-    * Choose tiles from loaded tilesets.
-    * Arrange them into renderer grid.
-    * Specify animations.
-    * Attach HUD1 tiles to required menu actions.
-  * Frontloader handles execution of actions (e.g., switching themes, opening ROM list).
+  * Execute system commands.
+  * Override hardcoded Frontloader limitations.
 
 ---
 
-## Required Lua API Contract
+## Menu System (Required)
 
-Each `theme.lua` must implement these functions (or Theme Loader throws fatal theme error):
+The Frontloader requires all themes to expose the following menu items (graphical or textual). If missing → **theme loader fails** and fallback is loaded.
 
-```lua
--- Called once when theme is loaded
-function theme_init()
-end
+### File Menu (Required)
 
--- Called each frame, must return a table of layer tilemaps
-function theme_update(dt)
-    return {
-        bg1 = {...},
-        bg2 = {...},
-        fg1 = {...},
-        fg2 = {...},
-        spr = {...},
-        hud1 = {...},
-        hud2 = {...},
-    }
-end
+* **Load ROM**
 
--- Must bind HUD1 tiles to required menu actions
-function theme_bind_menus()
-    return {
-        file_menu_tile = {x=4, y=10},
-        theme_menu_tile = {x=8, y=10},
-        config_menu_tile = {x=12, y=10}
-    }
-end
-```
+  * Opens configured ROM directory.
+  * User selects file.
+  * Passes ROM path → Frontloader loads via **SNES9x libretro core**.
+* **Recent ROMs**
 
-* **Validation Rules:**
+  * Displays last N games.
+  * Selecting one → reloads ROM directly.
+* **Exit**
 
-  * Missing `theme_init`, `theme_update`, or `theme_bind_menus` → Fatal theme error.
-  * Missing HUD1 tiles for required menus → Fatal theme error.
-  * Invalid return data (not tilemap tables) → Fatal theme error.
+  * Clean shutdown.
+
+### File Menu (Optional Extensions)
+
+* Save State
+* Load State
+* Reset Game
+* Controller Config
+* Video Options
+* Audio Options
+
+---
+
+## Execution Flow
+
+1. Start program → play splash.
+2. Splash runs while configs + theme checked.
+3. Theme initialized:
+
+   * Load config.ini.
+   * Load assets (tilesets).
+   * Run Lua tilemap script.
+   * Initialize required menu items.
+4. Enter main loop:
+
+   * Render SNES-style layered scene.
+   * Lua controls layout + interactions.
+   * Frontloader enforces hardcoded rules.
+5. User selects ROM:
+
+   * Theme → `frontloader_menu_request("load_rom")`.
+   * Frontloader validates + calls SNES9x core.
+   * Emulator runs inside renderer context.
+6. On exit → clean shutdown.
 
 ---
